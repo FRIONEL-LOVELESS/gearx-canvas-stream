@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HARK: Win95 MS-DOS & PowerShell Drive CLI</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts for Retro Monospace & Win95 feel -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --dos-green: #00ff66;
+            --dos-amber: #ffb000;
+            --dos-cyan: #00f0ff;
+            --win95-gray: #c0c0c0;
+            --win95-dark: #808080;
+            --win95-blue: #000080;
+        }
+
+        body {
+            background-color: #050508;
+            color: var(--dos-green);
+            font-family: 'Fira Code', monospace;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .font-dos {
+            font-family: 'VT323', monospace;
+        }
+
+        /* CRT Screen Scanline Simulation */
+        .scanlines {
+            position: relative;
+        }
+        .scanlines::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.4) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02));
+            z-index: 40;
+            background-size: 100% 3px, 6px 100%;
+            pointer-events: none;
+            opacity: 0.85;
+        }
+
+        /* Win95 Window Frame */
+        .win95-window {
+            background: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: 4px 4px 10px rgba(0,0,0,0.8);
+        }
+
+        .win95-titlebar {
+            background: linear-gradient(90deg, #000080, #1084d0);
+            color: white;
+            font-weight: bold;
+        }
+
+        .win95-button {
+            background: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: inset 1px 1px 0px #dfdfdf, inset -1px -1px 0px #404040;
+            color: #000;
+        }
+        .win95-button:active {
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0px #404040, inset -1px -1px 0px #dfdfdf;
+            padding-top: 1px;
+            padding-left: 1px;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #000000;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+        }
+
+        /* Blinking Cursor */
+        .blink-cursor {
+            animation: blink 1s step-start infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col justify-between p-2 sm:p-4 bg-[#0a0a12] scanlines">
+
+    <!-- WIN95 TOP APPLICATION HEADER -->
+    <header class="win95-window w-full px-2 py-1 flex items-center justify-between text-xs mb-2 z-30">
+        <div class="flex items-center space-x-2">
+            <span class="text-base">💻</span>
+            <span class="font-bold text-black font-dos text-lg">HARK MS-DOS & Win95 Drive CLI [Version 4.10.2222]</span>
+        </div>
+        <div class="flex items-center space-x-1">
+            <button onclick="toggleColorMode('green')" class="px-2 py-0.5 win95-button text-[11px] font-bold text-green-700">🟢 DOS Green</button>
+            <button onclick="toggleColorMode('amber')" class="px-2 py-0.5 win95-button text-[11px] font-bold text-amber-700">🟠 Retro Amber</button>
+            <button onclick="toggleColorMode('cyan')" class="px-2 py-0.5 win95-button text-[11px] font-bold text-cyan-700">🔵 Cyber Cyan</button>
+            <button onclick="toggleScanlines()" class="px-2 py-0.5 win95-button text-[11px] font-bold">📺 CRT</button>
+        </div>
+    </header>
+
+    <!-- MAIN TERMINAL WINDOW CONTAINER -->
+    <main class="flex-1 w-full bg-black border-2 border-[#808080] flex flex-col overflow-hidden relative shadow-2xl p-2 rounded-sm">
+        
+        <!-- Terminal Status & Hotkey Helper Bar -->
+        <div class="bg-[#000084] text-cyan-300 px-3 py-1 text-xs font-mono flex flex-wrap items-center justify-between border-b border-blue-900 mb-1">
+            <div class="flex items-center space-x-3">
+                <span id="header-cwd" class="font-bold text-white">GDRIVE:\root\</span>
+                <span class="text-zinc-400">|</span>
+                <span id="quota-display" class="text-amber-300">Storage: 10.2GB / 15.0GB (68%)</span>
+            </div>
+            <div class="flex items-center space-x-2 text-[11px] hidden sm:flex">
+                <span class="text-green-400 font-bold">[Tab]: Auto-complete</span>
+                <span class="text-yellow-400 font-bold">[↑/↓]: History</span>
+                <span class="text-cyan-400 font-bold">[F1]: Help</span>
+                <span class="text-purple-400 font-bold">[F5]: Clear</span>
+            </div>
+        </div>
+
+        <!-- CLI Output Display Area -->
+        <div id="cli-output" class="flex-1 overflow-y-auto font-mono text-xs sm:text-sm space-y-1 p-2 select-text text-green-400">
+            <div class="text-cyan-300 font-bold">HARK MS-DOS / PowerShell Hybrid Drive Environment v4.1</div>
+            <div class="text-zinc-500">(C) Copyright 2026 Shinra Electric Power Co. & Black Mage Archives. All rights reserved.</div>
+            <div class="text-amber-300">Google Drive API v3 Connected. Virtual File System mounted successfully at GDRIVE:\root\.</div>
+            <div class="text-zinc-400 mb-2">Type <span class="text-green-300 font-bold">"help"</span> or <span class="text-green-300 font-bold">"dir"</span> to begin exploring. Use [Tab] for command auto-completion.</div>
+        </div>
+
+        <!-- CLI Active Command Line Input -->
+        <div class="flex items-center px-2 py-1.5 bg-[#08080c] border-t border-zinc-800">
+            <span id="cli-prompt" class="text-green-400 font-mono text-xs sm:text-sm font-bold mr-2 whitespace-nowrap">GDRIVE:\root&gt;</span>
+            <input type="text" id="cli-input" class="flex-1 bg-transparent border-none outline-none text-green-300 font-mono text-xs sm:text-sm placeholder-zinc-700 focus:ring-0" placeholder="Type command e.g. dir, cd, cat, spawn, apk-mgr, help..." autocomplete="off" spellcheck="false" autofocus>
+            <span class="inline-block w-2.5 h-4 bg-green-400 blink-cursor ml-1" id="cursor-block"></span>
+        </div>
+    </main>
+
+    <!-- WIN95 BOTTOM STATUS BAR & QUICK APK TOOL BUTTONS -->
+    <footer class="w-full bg-[#c0c0c0] border-t-2 border-white px-2 py-1 mt-2 flex flex-wrap items-center justify-between text-xs text-black">
+        <div class="flex items-center space-x-2">
+            <span class="font-bold px-2 py-0.5 win95-button bg-gray-300">Start</span>
+            <span class="text-zinc-700">| Quick APK / Drive Tools:</span>
+            <button onclick="runQuickCmd('dir')" class="px-2 py-0.5 win95-button">📂 dir</button>
+            <button onclick="runQuickCmd('apk-list')" class="px-2 py-0.5 win95-button">🤖 APKs</button>
+            <button onclick="runQuickCmd('spawn app.apk')" class="px-2 py-0.5 win95-button">✨ spawn</button>
+            <button onclick="runQuickCmd('tree')" class="px-2 py-0.5 win95-button">🌲 tree</button>
+        </div>
+        <div class="flex items-center space-x-3">
+            <span id="status-time" class="font-mono px-2 py-0.5 border border-gray-500 bg-gray-200">12:00 PM</span>
+        </div>
+    </footer>
+
+    <!-- JAVASCRIPT: MS-DOS & POWERSHELL ENGINE -->
+    <script>
+        // -------------------------------------------------------------
+        // VIRTUAL GOOGLE DRIVE FILESYSTEM & APK STORAGE
+        // -------------------------------------------------------------
+        const DriveFS = {
+            currentPath: ['root'],
+            fileTree: {
+                'root': {
+                    name: 'Root Directory',
+                    folders: {
+                        'apks': {
+                            name: 'Android APK Crypt',
+                            folders: {},
+                            files: [
+                                { id: 'a1', name: 'midgar_shinra_exec_v2.apk', type: 'apk', size: '42.8 MB', date: '2026-03-14', desc: 'Shinra executive scrutiny audit toolkit with 3D telemetry.' },
+                                { id: 'a2', name: 'blackmage_cli_tools.apk', type: 'apk', size: '18.4 MB', date: '2026-05-20', desc: 'Fourth Black Mage official remote CLI controller for X.com.' },
+                                { id: 'a3', name: 'doom_midgar_soundtrack.apk', type: 'apk', size: '104.2 MB', date: '2026-07-11', desc: 'Mick Gordon x Uematsu heavy industrial prog-metal soundtrack pack.' }
+                            ]
+                        },
+                        'documents': {
+                            name: 'Google Docs & Grimoires',
+                            folders: {
+                                'contracts': {
+                                    name: 'Mako Licensing',
+                                    folders: {},
+                                    files: [
+                                        { id: 'c1', name: 'shinra_energy_accord.docx', type: 'docx', size: '1.2 MB', date: '2026-01-10', desc: 'Binding energy extraction rights across Midgar sectors.' }
+                                    ]
+                                }
+                            },
+                            files: [
+                                { id: 'd1', name: 'nephew_black_mage_lineage.docx', type: 'docx', size: '940 KB', date: '2026-06-22', desc: 'Historical documentation establishing Western gamer Black Mage succession.' },
+                                { id: 'd2', name: 'cli_shortcuts_manual.txt', type: 'txt', size: '4 KB', date: '2026-02-01', desc: 'Reference guide for MS-DOS & PowerShell cmdlet mappings.' }
+                            ]
+                        },
+                        'binaries': {
+                            name: 'System Binaries',
+                            folders: {},
+                            files: [
+                                { id: 'b1', name: 'kernel32_dos.bin', type: 'bin', size: '512 KB', date: '2026-01-01', desc: 'Core DOS interrupt handler.' },
+                                { id: 'b2', name: 'powershell_core.exe', type: 'exe', size: '4.8 MB', date: '2026-03-01', desc: 'PSv7 command processor.' }
+                            ]
+                        }
+                    },
+                    files: [
+                        { id: 'f1', name: 'readme.txt', type: 'txt', size: '2 KB', date: '2026-01-01', desc: 'Welcome to HARK Drive CLI. Type HELP for available commands.' },
+                        { id: 'f2', name: 'config.sys', type: 'sys', size: '1 KB', date: '2026-01-01', desc: 'SYSTEM CONFIGURATION FILE.' }
+                    ]
+                }
+            },
+
+            getCurrentFolder() {
+                let curr = this.fileTree['root'];
+                for (let i = 1; i < this.currentPath.length; i++) {
+                    const seg = this.currentPath[i];
+                    if (curr.folders && curr.folders[seg]) {
+                        curr = curr.folders[seg];
+                    }
+                }
+                return curr;
+            },
+
+            getPathString() {
+                return 'GDRIVE:\\' + this.currentPath.join('\\');
+            },
+
+            navigate(target) {
+                const cur = this.getCurrentFolder();
+                if (target === '..' || target === '~') {
+                    if (this.currentPath.length > 1) {
+                        this.currentPath.pop();
+                        return true;
+                    }
+                    return false;
+                }
+                if (cur.folders && cur.folders[target]) {
+                    this.currentPath.push(target);
+                    return true;
+                }
+                return false;
+            },
+
+            addFile(fileName, type = 'apk', size = '15.0 MB', desc = 'User spawned artifact') {
+                const folder = this.getCurrentFolder();
+                folder.files.push({
+                    id: 'file_' + Date.now(),
+                    name: fileName,
+                    type: type,
+                    size: size,
+                    date: new Date().toISOString().split('T')[0],
+                    desc: desc
+                });
+            },
+
+            removeFile(fileName) {
+                const folder = this.getCurrentFolder();
+                const idx = folder.files.findIndex(f => f.name.toLowerCase() === fileName.toLowerCase());
+                if (idx !== -1) {
+                    return folder.files.splice(idx, 1)[0];
+                }
+                return null;
+            }
+        };
+
+        // -------------------------------------------------------------
+        // TERMINAL STATE & COMMAND HISTORY
+        // -------------------------------------------------------------
+        const commandHistory = [];
+        let historyIndex = -1;
+        let colorTheme = 'green'; // green, amber, cyan
+
+        const cliOutput = document.getElementById('cli-output');
+        const cliInput = document.getElementById('cli-input');
+        const cliPrompt = document.getElementById('cli-prompt');
+
+        function updatePromptDisplay() {
+            const pStr = DriveFS.getPathString();
+            cliPrompt.innerText = `${pStr}>`;
+            document.getElementById('header-cwd').innerText = pStr;
+        }
+
+        function appendToConsole(htmlString) {
+            const div = document.createElement('div');
+            div.innerHTML = htmlString;
+            cliOutput.appendChild(div);
+            cliOutput.scrollTop = cliOutput.scrollHeight;
+        }
+
+        // Color Theme Switcher
+        function toggleColorMode(mode) {
+            colorTheme = mode;
+            cliOutput.className = "flex-1 overflow-y-auto font-mono text-xs sm:text-sm space-y-1 p-2 select-text ";
+            const cursorBlock = document.getElementById('cursor-block');
+            
+            if (mode === 'green') {
+                cliOutput.classList.add('text-green-400');
+                cliInput.className = "flex-1 bg-transparent border-none outline-none text-green-300 font-mono text-xs sm:text-sm placeholder-zinc-700 focus:ring-0";
+                cursorBlock.className = "inline-block w-2.5 h-4 bg-green-400 blink-cursor ml-1";
+                appendToConsole(`<span class="text-green-300">[System] Color scheme switched to MS-DOS Classic Green.</span>`);
+            } else if (mode === 'amber') {
+                cliOutput.classList.add('text-amber-400');
+                cliInput.className = "flex-1 bg-transparent border-none outline-none text-amber-300 font-mono text-xs sm:text-sm placeholder-zinc-700 focus:ring-0";
+                cursorBlock.className = "inline-block w-2.5 h-4 bg-amber-400 blink-cursor ml-1";
+                appendToConsole(`<span class="text-amber-300">[System] Color scheme switched to Retro Amber Terminal.</span>`);
+            } else if (mode === 'cyan') {
+                cliOutput.classList.add('text-cyan-400');
+                cliInput.className = "flex-1 bg-transparent border-none outline-none text-cyan-300 font-mono text-xs sm:text-sm placeholder-zinc-700 focus:ring-0";
+                cursorBlock.className = "inline-block w-2.5 h-4 bg-cyan-400 blink-cursor ml-1";
+                appendToConsole(`<span class="text-cyan-300">[System] Color scheme switched to Cyber Cyan Terminal.</span>`);
+            }
+        }
+
+        function toggleScanlines() {
+            document.body.classList.toggle('scanlines');
+        }
+
+        // Quick button helper
+        function runQuickCmd(cmd) {
+            cliInput.value = cmd;
+            executeCommand(cmd);
+            cliInput.value = '';
+        }
+
+        // -------------------------------------------------------------
+        // COMMAND PROCESSOR & AUTO-COMPLETE
+        // -------------------------------------------------------------
+        const availableCommands = [
+            'help', 'dir', 'ls', 'cd', 'cat', 'type', 'mkdir', 'md', 
+            'spawn', 'rm', 'del', 'cls', 'clear', 'apk-mgr', 'tree', 
+            'mount', 'date', 'ver', 'xshare', 'shinra-audit'
+        ];
+
+        cliInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const cmd = cliInput.value.trim();
+                if (cmd) {
+                    commandHistory.push(cmd);
+                    historyIndex = commandHistory.length;
+                    
+                    // Echo command
+                    appendToConsole(`<div class="text-zinc-300 font-bold mt-1"><span class="text-cyan-300">${cliPrompt.innerText}</span> ${escapeHtml(cmd)}</div>`);
+                    executeCommand(cmd);
+                }
+                cliInput.value = '';
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (commandHistory.length > 0 && historyIndex > 0) {
+                    historyIndex--;
+                    cliInput.value = commandHistory[historyIndex];
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (commandHistory.length > 0 && historyIndex < commandHistory.length - 1) {
+                    historyIndex++;
+                    cliInput.value = commandHistory[historyIndex];
+                } else {
+                    historyIndex = commandHistory.length;
+                    cliInput.value = '';
+                }
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                // Auto-complete logic
+                const val = cliInput.value.toLowerCase();
+                const match = availableCommands.find(c => c.startsWith(val));
+                if (match) {
+                    cliInput.value = match;
+                } else {
+                    // Check file match in current folder
+                    const cur = DriveFS.getCurrentFolder();
+                    const allItems = [...Object.keys(cur.folders || {}), ...(cur.files || []).map(f => f.name)];
+                    const fileMatch = allItems.find(item => item.toLowerCase().startsWith(val));
+                    if (fileMatch) {
+                        cliInput.value = fileMatch;
+                    }
+                }
+            }
+        });
+
+        function executeCommand(inputStr) {
+            const parts = inputStr.split(/\s+/);
+            const cmd = parts[0].toLowerCase();
+            const args = parts.slice(1);
+
+            switch (cmd) {
+                case 'help':
+                    appendToConsole(`
+                        <div class="text-yellow-300 font-bold mb-1">HARK MS-DOS / POWERSHELL DRIVE COMMAND LIST:</div>
+                        <table class="w-full text-zinc-300 text-[12px] space-y-1">
+                            <tr><td class="text-cyan-300 w-36">dir, ls</td><td>List files and folders in current directory</td></tr>
+                            <tr><td class="text-cyan-300">cd &lt;dir&gt;</td><td>Change directory (use '..' to go up)</td></tr>
+                            <tr><td class="text-cyan-300">cat, type &lt;file&gt;</td><td>Inspect file contents, metadata and hex preview</td></tr>
+                            <tr><td class="text-cyan-300">mkdir, md &lt;dir&gt;</td><td>Create new directory folder</td></tr>
+                            <tr><td class="text-cyan-300">spawn &lt;name&gt; [type]</td><td>Spawn new simulated APK or document file</td></tr>
+                            <tr><td class="text-cyan-300">rm, del &lt;name&gt;</td><td>Delete/remove file or folder</td></tr>
+                            <tr><td class="text-cyan-300">apk-mgr</td><td>Launch simulated APK package manager utility</td></tr>
+                            <tr><td class="text-cyan-300">tree</td><td>Display visual directory tree structure</td></tr>
+                            <tr><td class="text-cyan-300">xshare &lt;msg&gt;</td><td>Broadcast renowned Black Mage message to X.com</td></tr>
+                            <tr><td class="text-cyan-300">shinra-audit</td><td>Run executive scrutiny audit against Shinra Bldg</td></tr>
+                            <tr><td class="text-cyan-300">cls, clear</td><td>Clear terminal screen buffer</td></tr>
+                            <tr><td class="text-cyan-300">ver, date</td><td>Display system version and timestamp</td></tr>
+                        </table>
+                    `);
+                    break;
+
+                case 'dir':
+                case 'ls':
+                    const cur = DriveFS.getCurrentFolder();
+                    let out = `<div class="text-zinc-400 text-xs mb-1"> Directory of ${DriveFS.getPathString()}</div>`;
+                    out += `<div class="text-zinc-500 font-bold border-b border-zinc-700 pb-1">Mode          LastWriteTime     Size   Name</div>`;
+                    
+                    let dirCount = 0;
+                    let fileCount = 0;
+
+                    Object.keys(cur.folders || {}).forEach(k => {
+                        out += `<div class="text-yellow-300 font-mono">&lt;DIR&gt;         2026-03-29       --   [${k}]</div>`;
+                        dirCount++;
+                    });
+
+                    (cur.files || []).forEach(f => {
+                        out += `<div class="text-green-300 font-mono">-a----        ${f.date}  ${f.size.padStart(8, ' ')}   ${f.name}</div>`;
+                        fileCount++;
+                    });
+
+                    out += `<div class="text-zinc-400 text-xs mt-1">       ${dirCount} Dir(s) | ${fileCount} File(s) listed. 4,792 KB free.</div>`;
+                    appendToConsole(out);
+                    break;
+
+                case 'cd':
+                    if (!args[0] || args[0] === '\\' || args[0] === '~') {
+                        DriveFS.currentPath = ['root'];
+                        appendToConsole(`<span class="text-green-300">Returned to GDRIVE:\\root</span>`);
+                    } else if (args[0] === '..') {
+                        if (DriveFS.navigate('..')) {
+                            appendToConsole(`<span class="text-green-300">Moved up. Current: ${DriveFS.getPathString()}</span>`);
+                        } else {
+                            appendToConsole(`<span class="text-red-400">Already at root directory.</span>`);
+                        }
+                    } else {
+                        const target = args[0];
+                        if (DriveFS.navigate(target)) {
+                            appendToConsole(`<span class="text-green-300">Changed directory to: ${DriveFS.getPathString()}</span>`);
+                        } else {
+                            appendToConsole(`<span class="text-red-400">Directory not found: '${target}'</span>`);
+                        }
+                    }
+                    updatePromptDisplay();
+                    break;
+
+                case 'cat':
+                case 'type':
+                    if (!args[0]) {
+                        appendToConsole(`<span class="text-red-400">Usage: cat &lt;filename&gt;</span>`);
+                        return;
+                    }
+                    const targetFile = DriveFS.getCurrentFolder().files.find(f => f.name.toLowerCase() === args[0].toLowerCase());
+                    if (targetFile) {
+                        appendToConsole(`
+                            <div class="bg-zinc-900 border border-zinc-700 p-2 my-1 text-xs">
+                                <div class="text-cyan-300 font-bold">// FILE INSPECTION: ${targetFile.name}</div>
+                                <div class="text-zinc-300 mt-1">Size: ${targetFile.size} | Date: ${targetFile.date} | Type: ${targetFile.type.toUpperCase()}</div>
+                                <div class="text-amber-300 mt-1">Description: ${targetFile.desc}</div>
+                                <div class="text-zinc-500 mt-1 font-mono">00000000: 7f45 4c46 0201 0100 0000 0000 0000 0000  .ELF............</div>
+                                <div class="text-zinc-500 font-mono">00000010: 4841 524b 5f44 5249 5645 5f41 5254 4946  HARK_DRIVE_ARTIF</div>
+                            </div>
+                        `);
+                    } else {
+                        appendToConsole(`<span class="text-red-400">File not found: '${args[0]}'</span>`);
+                    }
+                    break;
+
+                case 'mkdir':
+                case 'md':
+                    const newDir = args[0] || ('new_dir_' + Math.floor(Math.random()*1000));
+                    DriveFS.getCurrentFolder().folders[newDir] = { name: newDir, folders: {}, files: [] };
+                    appendToConsole(`<span class="text-green-300">Directory [${newDir}] successfully created.</span>`);
+                    break;
+
+                case 'spawn':
+                    const fileName = args[0] || `relic_${Math.floor(Math.random()*900+100)}.apk`;
+                    const fileType = fileName.includes('.') ? fileName.split('.').pop() : 'apk';
+                    DriveFS.addFile(fileName, fileType, '14.2 MB', 'Materialized via CLI spawn utility');
+                    appendToConsole(`<span class="text-green-300">Artifact '${fileName}' successfully spawned in ${DriveFS.getPathString()}!</span>`);
+                    break;
+
+                case 'rm':
+                case 'del':
+                    if (!args[0]) {
+                        appendToConsole(`<span class="text-red-400">Usage: rm &lt;filename&gt;</span>`);
+                        return;
+                    }
+                    const delTarget = args[0];
+                    const curFolder = DriveFS.getCurrentFolder();
+                    if (curFolder.folders && curFolder.folders[delTarget]) {
+                        delete curFolder.folders[delTarget];
+                        appendToConsole(`<span class="text-amber-300">Folder '${delTarget}' deleted.</span>`);
+                    } else {
+                        const removed = DriveFS.removeFile(delTarget);
+                        if (removed) {
+                            appendToConsole(`<span class="text-amber-300">File '${removed.name}' successfully deleted.</span>`);
+                        } else {
+                            appendToConsole(`<span class="text-red-400">File or folder not found: '${delTarget}'</span>`);
+                        }
+                    }
+                    break;
+
+                case 'apk-mgr':
+                    appendToConsole(`
+                        <div class="bg-blue-950/60 border border-blue-700 p-2 text-xs rounded my-1">
+                            <div class="text-cyan-300 font-bold">🤖 SIMULATED APK PACKAGE MANAGER v2.4</div>
+                            <div class="text-zinc-300 mt-1">Installed Packages:</div>
+                            <div class="text-green-300">- com.shinra.executive.audit (v1.2) [Active]</div>
+                            <div class="text-green-300">- com.blackmage.renown.xcom (v4.0) [Active]</div>
+                            <div class="text-green-300">- com.doom.midgar.ost (v6.6) [Running]</div>
+                            <div class="text-zinc-400 mt-1">Type <span class="text-yellow-300">spawn &lt;name.apk&gt;</span> to install new APK packages.</div>
+                        </div>
+                    `);
+                    break;
+
+                case 'tree':
+                    appendToConsole(`
+                        <div class="text-yellow-300 font-mono text-xs">
+                            GDRIVE:\\<br>
+                            ├── apks<br>
+                            │   ├── midgar_shinra_exec_v2.apk<br>
+                            │   ├── blackmage_cli_tools.apk<br>
+                            │   └── doom_midgar_soundtrack.apk<br>
+                            ├── documents<br>
+                            │   ├── contracts<br>
+                            │   │   └── shinra_energy_accord.docx<br>
+                            │   ├── nephew_black_mage_lineage.docx<br>
+                            │   └── cli_shortcuts_manual.txt<br>
+                            └── binaries<br>
+                                ├── kernel32_dos.bin<br>
+                                └── powershell_core.exe
+                        </div>
+                    `);
+                    break;
+
+                case 'xshare':
+                    const msg = args.join(' ') || 'Spreading Fourth Black Mage renown across X.com!';
+                    appendToConsole(`
+                        <div class="bg-black border border-cyan-500 p-2 rounded text-xs my-1">
+                            <span class="text-cyan-400 font-bold">🐦 X.COM BROADCAST SUCCESS:</span>
+                            <div class="text-zinc-200 mt-1">"@BlackMageIV: ${escapeHtml(msg)} #Midgar #DOOM #Shinra #FinalFantasyVII"</div>
+                            <div class="text-emerald-400 text-[11px] mt-1">Status: Published to global social ledger (Engagement: 4,892 impressions).</div>
+                        </div>
+                    `);
+                    break;
+
+                case 'shinra-audit':
+                    appendToConsole(`
+                        <div class="bg-red-950/70 border border-red-700 p-2 rounded text-xs my-1">
+                            <span class="text-red-400 font-bold">⚠️ SHINRA ELECTRIC POWER CO. EXECUTIVE SCRUTINY AUDIT:</span>
+                            <div class="text-zinc-200 mt-1">Sector 0 Mako Reactor Output: 100% Stable.</div>
+                            <div class="text-zinc-200">President Shinra Inspection Status: <span class="text-amber-300 font-bold">INTENSE & UNBLINKING</span></div>
+                            <div class="text-zinc-400 text-[11px] mt-1">Recommendation: Slow down scrutiny tempo, maintain 7/3 squared atmospheric groove.</div>
+                        </div>
+                    `);
+                    break;
+
+                case 'cls':
+                case 'clear':
+                    cliOutput.innerHTML = '';
+                    appendToConsole(`<span class="text-zinc-500">Terminal buffer cleared.</span>`);
+                    break;
+
+                case 'ver':
+                    appendToConsole(`<span class="text-green-300">HARK MS-DOS / PowerShell Drive Subsystem [Version 4.10.2222-RELEASE]</span>`);
+                    break;
+
+                case 'date':
+                    appendToConsole(`<span class="text-green-300">Current Date: ${new Date().toUTCString()}</span>`);
+                    break;
+
+                default:
+                    appendToConsole(`<span class="text-red-400">Bad command or file name: '${escapeHtml(cmd)}'. Type 'help' for instructions.</span>`);
+            }
+        }
+
+        // Live Clock in Win95 Status Bar
+        setInterval(() => {
+            const now = new Date();
+            let hours = now.getHours();
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12 || 12;
+            document.getElementById('status-time').innerText = `${hours}:${minutes} ${ampm}`;
+        }, 1000);
+
+        // Initialization
+        window.onload = function() {
+            updatePromptDisplay();
+            cliInput.focus();
+        };
+    </script>
+</body>
+</html>
